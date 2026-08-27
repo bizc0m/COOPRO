@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { degrees, PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import type { GeneratedPdf, ReportForm, ReportPhoto } from '../types'
 import { LEGAL_NOTICE, MAX_PDF_BYTES } from './constants'
 import { compactCc } from './validation'
@@ -30,6 +30,7 @@ function wrap(text: string, max: number): string[] {
 
 type PdfPage = ReturnType<PDFDocument['addPage']>
 type PdfFont = Awaited<ReturnType<PDFDocument['embedFont']>>
+const PDF_WATERMARK = 'COOPRO — FIELD REPORT'
 
 function drawWrapped(
   page: PdfPage,
@@ -45,6 +46,21 @@ function drawWrapped(
     page.drawText(line, { x, y: y - index * (size + 5), size, font, color: rgb(0.08, 0.08, 0.08) })
   })
   return y - lines.length * (size + 5)
+}
+
+function applyWatermark(doc: PDFDocument, font: PdfFont): void {
+  doc.getPages().forEach((page) => {
+    const { width, height } = page.getSize()
+    page.drawText(PDF_WATERMARK, {
+      x: width * 0.13,
+      y: height * 0.43,
+      size: 46,
+      font,
+      color: rgb(0.56, 0.6, 0.64),
+      opacity: 0.16,
+      rotate: degrees(34),
+    })
+  })
 }
 
 export async function generateReportPdf(form: ReportForm, photos: ReportPhoto[]): Promise<GeneratedPdf> {
@@ -102,6 +118,8 @@ export async function generateReportPdf(form: ReportForm, photos: ReportPhoto[])
     page.drawImage(image, { x: 36, y: y - height, width, height })
     y -= height + 24
   }
+
+  applyWatermark(doc, bold)
 
   const pdfBytes = await doc.save({ useObjectStreams: true })
   const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength)
