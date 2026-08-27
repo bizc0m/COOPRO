@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ProblemType, ReportPhoto, SessionState, Step } from './types'
+import type { ReportPhoto, SessionState, Step } from './types'
 import { MAX_PDF_BYTES, MAX_PHOTOS } from './lib/constants'
 import { clearStoredCodes, loadStoredCodes, parseAccessCodes, saveStoredCodes } from './lib/codes'
 import { canAddPhoto, compressPhoto, blobToDataUrl, stopMediaStream } from './lib/photos'
@@ -8,17 +8,7 @@ import { sendReport } from './lib/reportApi'
 import { clearSession, createEmptySession, revokeSessionUrls } from './lib/session'
 import { compactCc, validateReportFields, validateReportForm } from './lib/validation'
 
-const problemTypes: Array<{ value: ProblemType; label: string }> = [
-  { value: 'eau', label: 'Eau' },
-  { value: 'humidite', label: 'Humidité' },
-  { value: 'fissure', label: 'Fissure' },
-  { value: 'electricite', label: 'Électricité' },
-  { value: 'chauffage', label: 'Chauffage' },
-  { value: 'acces', label: 'Accès' },
-  { value: 'securite', label: 'Sécurité' },
-  { value: 'facade', label: 'Façade' },
-  { value: 'autre', label: 'Autre' },
-]
+type VisualVariant = '1' | '2' | '3'
 
 function Field({
   label,
@@ -35,6 +25,44 @@ function Field({
       {children}
       {error ? <span className="text-sm normal-case tracking-normal text-red-700">{error}</span> : null}
     </label>
+  )
+}
+
+function settingsMailto(form: SessionState['form']): string {
+  const body = [
+    'Réglages COOPRO',
+    '',
+    `Adresse / immeuble : ${form.address || '-'}`,
+    `Zone : ${form.zone || '-'}`,
+    `Destinataire Principal : ${form.to || '-'}`,
+    `Copie (CC) : ${[form.cc1, form.cc2].filter(Boolean).join(', ') || '-'}`,
+    `Copie Cachée (CCI) : ${form.bcc || '-'}`,
+  ].join('\n')
+
+  return `mailto:${encodeURIComponent(form.bcc)}?subject=${encodeURIComponent('Réglages COOPRO')}&body=${encodeURIComponent(body)}`
+}
+
+function VariantSwitch({
+  variant,
+  onChange,
+}: {
+  variant: VisualVariant
+  onChange: (variant: VisualVariant) => void
+}) {
+  return (
+    <div className="variant-switch" aria-label="Variantes visuelles">
+      {(['1', '2', '3'] as VisualVariant[]).map((value) => (
+        <button
+          className={variant === value ? 'active' : ''}
+          key={value}
+          type="button"
+          onClick={() => onChange(value)}
+          aria-pressed={variant === value}
+        >
+          {value}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -63,12 +91,16 @@ function CameraScreen({
   onRemove,
   onCaption,
   onDone,
+  variant,
+  onVariantChange,
 }: {
   photos: ReportPhoto[]
   onCapture: (photo: ReportPhoto) => void
   onRemove: (id: string) => void
   onCaption: (id: string, caption: string) => void
   onDone: () => void
+  variant: VisualVariant
+  onVariantChange: (variant: VisualVariant) => void
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -134,13 +166,16 @@ function CameraScreen({
   }
 
   return (
-    <main className="screen">
+    <main className="screen" data-theme={variant}>
       <header className="topbar">
         <div>
           <p className="kicker">Caméra live</p>
           <h1>Photos</h1>
         </div>
-        <span className="counter">{photos.length}/{MAX_PHOTOS}</span>
+        <div className="top-actions">
+          <VariantSwitch variant={variant} onChange={onVariantChange} />
+          <span className="counter">{photos.length}/{MAX_PHOTOS}</span>
+        </div>
       </header>
       <StepRail step="camera" />
 
@@ -196,6 +231,7 @@ function App() {
   const [codeInput, setCodeInput] = useState('')
   const [rememberCodes, setRememberCodes] = useState(false)
   const [selectedCode, setSelectedCode] = useState('')
+  const [variant, setVariant] = useState<VisualVariant>('1')
   const sessionRef = useRef(session)
 
   const validation = useMemo(
@@ -302,22 +338,27 @@ function App() {
           }))
         }
         onDone={createPdf}
+        variant={variant}
+        onVariantChange={setVariant}
       />
     )
   }
 
   return (
-    <main className="screen">
+    <main className="screen" data-theme={variant}>
       <header className="topbar">
         <div>
           <p className="kicker">COOPRO — FIELD REPORT</p>
-          <h1>Prenez. Décrivez. Transmettez.</h1>
+          <h1>Capturer & Signaler</h1>
         </div>
-        {step !== 'start' ? (
-          <button className="ghost compact" type="button" onClick={resetAll}>
-            Effacer cette session
-          </button>
-        ) : null}
+        <div className="top-actions">
+          <VariantSwitch variant={variant} onChange={setVariant} />
+          {step !== 'start' ? (
+            <button className="ghost compact" type="button" onClick={resetAll}>
+              Effacer cette session
+            </button>
+          ) : null}
+        </div>
       </header>
       {step !== 'start' ? <StepRail step={step} /> : null}
 
@@ -336,21 +377,14 @@ function App() {
 
       {step === 'form' ? (
         <section className="grid gap-4">
+          <Field label="Email Personnel" error={errors.bcc}>
+            <input className="input" inputMode="email" value={session.form.bcc} onChange={(event) => updateForm('bcc', event.target.value)} />
+          </Field>
           <Field label="Adresse / immeuble" error={errors.address}>
             <input className="input" value={session.form.address} onChange={(event) => updateForm('address', event.target.value)} />
           </Field>
           <Field label="Zone" error={errors.zone}>
             <input className="input" value={session.form.zone} onChange={(event) => updateForm('zone', event.target.value)} placeholder="Bâtiment, étage, lot, pièce, partie commune" />
-          </Field>
-          <Field label="Type de problème" error={errors.problemType}>
-            <select className="input" value={session.form.problemType} onChange={(event) => updateForm('problemType', event.target.value)}>
-              <option value="">Choisir</option>
-              {problemTypes.map((type) => (
-                <option value={type.value} key={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
           </Field>
           <Field label="Urgence">
             <div className="segmented">
@@ -373,24 +407,26 @@ function App() {
           <Field label="Description factuelle" error={errors.description}>
             <textarea className="input min-h-28 resize-none" value={session.form.description} onChange={(event) => updateForm('description', event.target.value)} />
           </Field>
-          <Field label="Destinataire principal" error={errors.to}>
+          <Field label="Destinataire Principal" error={errors.to}>
             <input className="input" inputMode="email" value={session.form.to} onChange={(event) => updateForm('to', event.target.value)} />
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Copie 1" error={errors.cc1}>
+            <Field label="Copie (CC) 1" error={errors.cc1}>
               <input className="input" inputMode="email" value={session.form.cc1} onChange={(event) => updateForm('cc1', event.target.value)} />
             </Field>
-            <Field label="Copie 2" error={errors.cc2}>
+            <Field label="Copie (CC) 2" error={errors.cc2}>
               <input className="input" inputMode="email" value={session.form.cc2} onChange={(event) => updateForm('cc2', event.target.value)} />
             </Field>
           </div>
-          <Field label="E-mail personnel" error={errors.bcc}>
-            <input className="input" inputMode="email" value={session.form.bcc} onChange={(event) => updateForm('bcc', event.target.value)} />
-          </Field>
           {errors.photos ? <p className="notice error">{errors.photos}</p> : null}
-          <button className="primary" type="button" onClick={openCameraAfterValidation}>
-            Valider et ouvrir la caméra live
-          </button>
+          <div className="action-row">
+            <button className="primary" type="button" onClick={openCameraAfterValidation}>
+              Valider et ouvrir la caméra live
+            </button>
+            <a className="ghost text-center" href={settingsMailto(session.form)}>
+              S’envoyer les réglages par mail
+            </a>
+          </div>
         </section>
       ) : null}
 
@@ -403,16 +439,16 @@ function App() {
               <span className={pdfTooLarge ? 'text-red-800' : 'text-right'}>{session.pdf ? formatBytes(session.pdf.size) : '-'}</span>
               <span>Limite</span>
               <span className="text-right">{formatBytes(MAX_PDF_BYTES)}</span>
-              <span>Destinataire</span>
+              <span>Destinataire Principal</span>
               <span className="text-right">{session.form.to}</span>
-              <span>Copies</span>
+              <span>Copie (CC)</span>
               <span className="text-right">{compactCc(session.form).join(', ') || 'Aucune'}</span>
-              <span>Déclarant</span>
+              <span>Copie Cachée (CCI)</span>
               <span className="text-right">{session.form.bcc}</span>
             </div>
             {pdfTooLarge ? <p className="notice error">Transmission bloquée : PDF supérieur à 3,5 Mo.</p> : null}
             {session.pdf ? (
-              <div className="grid gap-3">
+              <div className="action-row">
                 <a
                   className="secondary text-center"
                   href={session.pdf.url}
@@ -433,9 +469,6 @@ function App() {
             <Field label="Codes disponibles">
               <textarea className="input min-h-24 resize-none" value={codeInput} onChange={(event) => setCodeInput(event.target.value)} placeholder="Coller un ou plusieurs codes d’accès" />
             </Field>
-            <button className="secondary" type="button" onClick={addCodes}>
-              Ajouter les codes
-            </button>
             <label className="checkbox">
               <input
                 type="checkbox"
@@ -447,17 +480,22 @@ function App() {
               />
               Mémoriser mes codes sur cet appareil
             </label>
-            <button
-              className="ghost"
-              type="button"
-              onClick={() => {
-                clearStoredCodes()
-                setCodes([])
-                setSelectedCode('')
-              }}
-            >
-              Effacer mes codes de cet appareil
-            </button>
+            <div className="action-row">
+              <button className="secondary" type="button" onClick={addCodes}>
+                Ajouter les codes
+              </button>
+              <button
+                className="ghost"
+                type="button"
+                onClick={() => {
+                  clearStoredCodes()
+                  setCodes([])
+                  setSelectedCode('')
+                }}
+              >
+                Effacer mes codes de cet appareil
+              </button>
+            </div>
             <select className="input" value={selectedCode} onChange={(event) => setSelectedCode(event.target.value)}>
               <option value="">Code d’accès</option>
               {codes.map((code) => (
@@ -489,17 +527,19 @@ function App() {
               ))}
             </div>
           ) : null}
-          <button
-            className="primary"
-            type="button"
-            onClick={transmit}
-            disabled={!session.pdfPreviewed || !session.confirmed || !selectedCode || pdfTooLarge || session.sendStatus === 'sending'}
-          >
-            {session.sendStatus === 'sending' ? 'Transmission...' : 'TRANSMETTRE LE RAPPORT — UTILISER 1 CODE'}
-          </button>
-          <button className="ghost" type="button" onClick={createPdf} disabled={!validation.valid}>
-            Régénérer le PDF
-          </button>
+          <div className="action-row">
+            <button
+              className="primary"
+              type="button"
+              onClick={transmit}
+              disabled={!session.pdfPreviewed || !session.confirmed || !selectedCode || pdfTooLarge || session.sendStatus === 'sending'}
+            >
+              {session.sendStatus === 'sending' ? 'Transmission...' : 'TRANSMETTRE LE RAPPORT — UTILISER 1 CODE'}
+            </button>
+            <button className="ghost" type="button" onClick={createPdf} disabled={!validation.valid}>
+              Régénérer le PDF
+            </button>
+          </div>
         </section>
       ) : null}
 

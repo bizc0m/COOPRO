@@ -31,6 +31,10 @@ describe('validation', () => {
     expect(validateReportFields(validForm).valid).toBe(true)
   })
 
+  it('ne rend plus le type de problème obligatoire', () => {
+    expect(validateReportFields({ ...validForm, problemType: '' }).valid).toBe(true)
+  })
+
   it('signale les champs requis et impose au moins une photo', () => {
     const result = validateReportForm({ ...validForm, address: '', to: 'bad' }, [])
     expect(result.valid).toBe(false)

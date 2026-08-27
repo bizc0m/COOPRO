@@ -34,7 +34,6 @@ export function validateReportFields(form: ReportForm): ValidationResult {
 
   if (!form.address.trim()) errors.address = 'Adresse requise'
   if (!form.zone.trim()) errors.zone = 'Zone requise'
-  if (!form.problemType) errors.problemType = 'Type requis'
   if (!form.description.trim()) errors.description = 'Description requise'
   if (!isValidEmail(form.to)) errors.to = 'E-mail principal invalide'
   if (form.cc1.trim() && !isValidEmail(form.cc1)) errors.cc1 = 'Copie invalide'

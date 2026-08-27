@@ -48,18 +48,26 @@ function drawWrapped(
   return y - lines.length * (size + 5)
 }
 
-function applyWatermark(doc: PDFDocument, font: PdfFont): void {
+function applyWatermark(doc: PDFDocument, font: PdfFont, generatedAt: Date): void {
+  const watermarkLines = [PDF_WATERMARK, `DATE ${generatedAt.toLocaleDateString('fr-FR')}`]
+
   doc.getPages().forEach((page) => {
     const { width, height } = page.getSize()
-    page.drawText(PDF_WATERMARK, {
-      x: width * 0.13,
-      y: height * 0.43,
-      size: 46,
-      font,
-      color: rgb(0.56, 0.6, 0.64),
-      opacity: 0.16,
-      rotate: degrees(34),
-    })
+    for (let y = -80; y < height + 160; y += 150) {
+      for (let x = -210; x < width + 180; x += 275) {
+        watermarkLines.forEach((line, index) => {
+          page.drawText(line, {
+            x,
+            y: y - index * 22,
+            size: index === 0 ? 24 : 15,
+            font,
+            color: rgb(0.56, 0.6, 0.64),
+            opacity: 0.11,
+            rotate: degrees(34),
+          })
+        })
+      }
+    }
   })
 }
 
@@ -67,7 +75,8 @@ export async function generateReportPdf(form: ReportForm, photos: ReportPhoto[])
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
-  const reportRef = `COOPRO-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 12)}`
+  const generatedAt = new Date()
+  const reportRef = `COOPRO-${generatedAt.toISOString().replace(/[-:T.Z]/g, '').slice(0, 12)}`
 
   let page = doc.addPage([595, 842])
   let y = 794
@@ -75,17 +84,16 @@ export async function generateReportPdf(form: ReportForm, photos: ReportPhoto[])
   y -= 28
   page.drawText(`Référence locale du rapport : ${reportRef}`, { x: 36, y, size: 10, font })
   y -= 16
-  page.drawText(`Date et heure : ${new Date().toLocaleString('fr-FR')}`, { x: 36, y, size: 10, font })
+  page.drawText(`Date et heure : ${generatedAt.toLocaleString('fr-FR')}`, { x: 36, y, size: 10, font })
   y -= 28
 
   const lines = [
     `Adresse / immeuble : ${form.address}`,
     `Zone : ${form.zone}`,
-    `Type : ${form.problemType}`,
     `Urgence : ${form.urgency}`,
-    `Destinataire principal : ${form.to}`,
-    `Copies : ${compactCc(form).join(', ') || 'Aucune'}`,
-    `E-mail déclarant : ${form.bcc}`,
+    `Destinataire Principal : ${form.to}`,
+    `Copie (CC) : ${compactCc(form).join(', ') || 'Aucune'}`,
+    `Copie Cachée (CCI) : ${form.bcc}`,
   ]
 
   lines.forEach((line) => {
@@ -119,7 +127,7 @@ export async function generateReportPdf(form: ReportForm, photos: ReportPhoto[])
     y -= height + 24
   }
 
-  applyWatermark(doc, bold)
+  applyWatermark(doc, bold, generatedAt)
 
   const pdfBytes = await doc.save({ useObjectStreams: true })
   const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength)
