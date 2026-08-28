@@ -8,7 +8,18 @@ import { sendReport } from './lib/reportApi'
 import { clearSession, createEmptySession, revokeSessionUrls } from './lib/session'
 import { compactCc, validateReportFields, validateReportForm } from './lib/validation'
 
-type VisualVariant = '1' | '2' | '3'
+type ProductTier = 'standard' | 'plus' | 'max'
+
+const tierOptions: Array<{
+  value: ProductTier
+  label: string
+  title: string
+  points: string[]
+}> = [
+  { value: 'standard', label: 'STD', title: 'Standard', points: ['Photo + PDF', 'Envoi mock', 'Session effaçable'] },
+  { value: 'plus', label: 'PLUS', title: 'Plus', points: ['Réglages mail', 'Filigrane daté', 'Contrôle destinataires'] },
+  { value: 'max', label: 'MAX', title: 'Max', points: ['Cockpit terrain', 'Audit PDF', 'Export compact'] },
+]
 
 function Field({
   label,
@@ -42,27 +53,42 @@ function settingsMailto(form: SessionState['form']): string {
   return `mailto:${encodeURIComponent(form.bcc)}?subject=${encodeURIComponent('Réglages COOPRO')}&body=${encodeURIComponent(body)}`
 }
 
-function VariantSwitch({
-  variant,
+function TierSwitch({
+  tier,
   onChange,
 }: {
-  variant: VisualVariant
-  onChange: (variant: VisualVariant) => void
+  tier: ProductTier
+  onChange: (tier: ProductTier) => void
 }) {
   return (
-    <div className="variant-switch" aria-label="Variantes visuelles">
-      {(['1', '2', '3'] as VisualVariant[]).map((value) => (
+    <div className="tier-switch" aria-label="Mode COOPRO">
+      {tierOptions.map((option) => (
         <button
-          className={variant === value ? 'active' : ''}
-          key={value}
+          className={tier === option.value ? 'active' : ''}
+          key={option.value}
           type="button"
-          onClick={() => onChange(value)}
-          aria-pressed={variant === value}
+          onClick={() => onChange(option.value)}
+          aria-pressed={tier === option.value}
         >
-          {value}
+          {option.label}
         </button>
       ))}
     </div>
+  )
+}
+
+function ModePanel({ tier }: { tier: ProductTier }) {
+  const currentTier = tierOptions.find((option) => option.value === tier) ?? tierOptions[0]
+
+  return (
+    <aside className="mode-panel" aria-label={`Mode ${currentTier.title}`}>
+      <strong>{currentTier.title}</strong>
+      <div>
+        {currentTier.points.map((point) => (
+          <span key={point}>{point}</span>
+        ))}
+      </div>
+    </aside>
   )
 }
 
@@ -91,16 +117,16 @@ function CameraScreen({
   onRemove,
   onCaption,
   onDone,
-  variant,
-  onVariantChange,
+  tier,
+  onTierChange,
 }: {
   photos: ReportPhoto[]
   onCapture: (photo: ReportPhoto) => void
   onRemove: (id: string) => void
   onCaption: (id: string, caption: string) => void
   onDone: () => void
-  variant: VisualVariant
-  onVariantChange: (variant: VisualVariant) => void
+  tier: ProductTier
+  onTierChange: (tier: ProductTier) => void
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -166,18 +192,19 @@ function CameraScreen({
   }
 
   return (
-    <main className="screen" data-theme={variant}>
+    <main className="screen" data-tier={tier}>
       <header className="topbar">
         <div>
           <p className="kicker">Caméra live</p>
           <h1>Photos</h1>
         </div>
         <div className="top-actions">
-          <VariantSwitch variant={variant} onChange={onVariantChange} />
           <span className="counter">{photos.length}/{MAX_PHOTOS}</span>
         </div>
       </header>
+      <TierSwitch tier={tier} onChange={onTierChange} />
       <StepRail step="camera" />
+      <ModePanel tier={tier} />
 
       <section className="panel overflow-hidden p-0">
         {cameraError ? (
@@ -231,7 +258,7 @@ function App() {
   const [codeInput, setCodeInput] = useState('')
   const [rememberCodes, setRememberCodes] = useState(false)
   const [selectedCode, setSelectedCode] = useState('')
-  const [variant, setVariant] = useState<VisualVariant>('1')
+  const [tier, setTier] = useState<ProductTier>('standard')
   const sessionRef = useRef(session)
 
   const validation = useMemo(
@@ -338,21 +365,22 @@ function App() {
           }))
         }
         onDone={createPdf}
-        variant={variant}
-        onVariantChange={setVariant}
+        tier={tier}
+        onTierChange={setTier}
       />
     )
   }
 
   return (
-    <main className="screen" data-theme={variant}>
+    <main className="screen" data-tier={tier}>
       <header className="topbar">
         <div>
-          <p className="kicker">COOPRO — FIELD REPORT</p>
-          <h1>Capturer & Signaler</h1>
+          <p className="kicker">COOPRO / FIELD REPORT</p>
+          <h1>
+            Capturer <span className="title-mark">&</span> Signaler
+          </h1>
         </div>
         <div className="top-actions">
-          <VariantSwitch variant={variant} onChange={setVariant} />
           {step !== 'start' ? (
             <button className="ghost compact" type="button" onClick={resetAll}>
               Effacer cette session
@@ -360,6 +388,7 @@ function App() {
           ) : null}
         </div>
       </header>
+      <TierSwitch tier={tier} onChange={setTier} />
       {step !== 'start' ? <StepRail step={step} /> : null}
 
       {step === 'start' ? (
@@ -369,6 +398,7 @@ function App() {
             <span>PDF local</span>
             <span>Caméra live</span>
           </div>
+          <ModePanel tier={tier} />
           <button className="primary h-20 text-lg" type="button" onClick={() => setStep('form')}>
             Nouveau signalement
           </button>
@@ -377,6 +407,7 @@ function App() {
 
       {step === 'form' ? (
         <section className="grid gap-4">
+          <ModePanel tier={tier} />
           <Field label="Email Personnel" error={errors.bcc}>
             <input className="input" inputMode="email" value={session.form.bcc} onChange={(event) => updateForm('bcc', event.target.value)} />
           </Field>
